@@ -1,7 +1,11 @@
 from datetime import datetime
 from enum import IntEnum
+from typing import Literal
 
 from pydantic import BaseModel
+
+SubjectType = Literal["user", "team"]
+ResourceType = Literal["org", "repo"]
 
 
 class Role(IntEnum):
@@ -49,7 +53,7 @@ class SubjectRef(BaseModel):
 
     id: int
     name: str
-    type: str
+    type: SubjectType
 
 
 class OrgOut(BaseModel):
@@ -66,7 +70,7 @@ class RepoOut(BaseModel):
 class ResourceOut(BaseModel):
     id: int
     name: str
-    type: str
+    type: ResourceType
     org_id: int | None
 
 
@@ -87,8 +91,8 @@ class GrantOut(BaseModel):
     id: int
     subject_id: int
     subject_name: str
-    subject_type: str
+    subject_type: SubjectType
     role: Role
     resource_id: int
     resource_name: str
-    resource_type: str
+    resource_type: ResourceType

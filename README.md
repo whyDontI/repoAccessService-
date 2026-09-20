@@ -27,6 +27,14 @@ psql -h localhost -p 5432 -U repo_access -d repo_access_test -f backend/app/sche
 cd backend && python3 -m unittest tests.test_cache tests.test_checker tests.test_oracle tests.test_routes tests.test_db -v
 ```
 
+If a backend model or route changes, regenerate the frontend's types (no server needs
+to be running -- this reads the Pydantic models directly):
+```bash
+cd frontend && npm run generate-types
+```
+(`npm install` needs `--legacy-peer-deps` once, since `openapi-typescript` declares an
+older TypeScript peer range than this project uses -- not a real incompatibility.)
+
 ## Current state
 Built: DB schema, fixture generator (with planted cycles/edge cases, now idempotent),
 the in-memory cache, `checker.check()` / `checker.explain()` (R1 + R3), the full API
@@ -236,12 +244,23 @@ Things I overrode or corrected along the way, beyond what's logged as a "dead en
   README's -- asked for plain, scannable bullet points over dense paragraph-style
   writing, which became a standing rule (see `CLAUDE.md`).
 
-- **Typed contract: hand-written TS types, not generated from OpenAPI.** FastAPI
-  exposes an OpenAPI schema that tools like `openapi-typescript` could generate a
-  client from. For a handful of endpoints, hand-writing `frontend/src/api.ts` to match
-  `backend/app/models.py` by eye was simpler than wiring up a codegen step -- verified
-  they actually match by checking every real response shape against the live
-  containerized backend rather than assuming the two sides agree.
+- **Typed contract: switched from hand-written TS types to generated ones.** The first
+  version hand-wrote `frontend/src/api.ts` to match `backend/app/models.py` by eye,
+  verified once against live responses. That's a real typed contract, but nothing
+  stopped it drifting the next time a model changed -- no build failure, no warning,
+  just a silent mismatch. Replaced it: `backend/scripts/export_openapi.py` writes
+  `backend/openapi.json` straight from the Pydantic models (no server needed, just
+  `app.openapi()`), and `frontend/src/generated-api-types.ts` is generated from that
+  via `openapi-typescript` (`npm run generate-types`). `api.ts` now just re-exports
+  those generated types. Proved this actually closes the gap, not just claims to:
+  renamed a field in `models.py`, regenerated, and `tsc -b` failed immediately with an
+  exact file/line pointing at the break -- then reverted the test change.
+- **Found a real precision gap while switching.** The hand-written types had claimed
+  `subject_type: "user" | "team"` as a literal union, but `models.py` only declared
+  `type: str` -- a plain string, unconstrained. The hand-written version was asserting
+  a stronger guarantee than the backend actually enforced. Fixed at the source: added
+  `SubjectType`/`ResourceType` `Literal` types to `models.py`, which now flow through
+  to the generated schema and the generated TS types correctly as literal unions.
 
 - **Added CORS middleware to the backend.** Wasn't needed until the frontend existed
   and started calling the API cross-origin. Permissive (`allow_origins=["*"]`) since

@@ -1,14 +1,27 @@
-// Hand-written to match backend/app/models.py -- FastAPI does expose an
-// OpenAPI schema this could be generated from instead, but for a handful
-// of endpoints this is easier to keep in sync by eye than to wire up a
-// codegen step for.
+// Types are generated, not hand-written -- see generated-api-types.ts's
+// own header and README for the regen command. That file is produced
+// from backend/openapi.json, which is itself produced straight from the
+// Pydantic models (backend/scripts/export_openapi.py), so these types
+// can't silently drift from what the backend actually serves: a changed
+// field only shows up here after someone deliberately regenerates.
+import type { components } from "./generated-api-types";
 
 const API_URL = import.meta.env.VITE_API_URL ?? "http://localhost:8000";
+
+export type Role = components["schemas"]["Role"];
+export type CheckResponse = components["schemas"]["CheckResponse"];
+export type ExplainResponse = components["schemas"]["ExplainResponse"];
+export type Org = components["schemas"]["OrgOut"];
+export type Repo = components["schemas"]["RepoOut"];
+export type Resource = components["schemas"]["ResourceOut"];
+export type Grant = components["schemas"]["GrantOut"];
+export type SubjectRef = components["schemas"]["SubjectRef"];
+export type Team = components["schemas"]["TeamOut"];
 
 // Role comes back over the wire as its underlying int (1-4), since
 // that's how pydantic serializes an IntEnum by default -- mapped back
 // to a label here rather than changing the wire format.
-export const ROLE_LABELS: Record<number, string> = {
+export const ROLE_LABELS: Record<Role, string> = {
   1: "read",
   2: "write",
   3: "admin",
@@ -16,60 +29,6 @@ export const ROLE_LABELS: Record<number, string> = {
 };
 export const ACTIONS = ["read", "write", "admin", "owner"] as const;
 export type Action = (typeof ACTIONS)[number];
-
-export interface CheckResponse {
-  allowed: boolean;
-  as_of: string | null;
-}
-
-export interface ExplainResponse {
-  allowed: boolean;
-  chain: string[];
-  granted_role: number | null;
-  reason: string | null;
-}
-
-export interface Org {
-  id: number;
-  name: string;
-}
-
-export interface Repo {
-  id: number;
-  name: string;
-  org_id: number;
-}
-
-export interface Resource {
-  id: number;
-  name: string;
-  type: "org" | "repo";
-  org_id: number | null;
-}
-
-export interface Grant {
-  id: number;
-  subject_id: number;
-  subject_name: string;
-  subject_type: "user" | "team";
-  role: number;
-  resource_id: number;
-  resource_name: string;
-  resource_type: "org" | "repo";
-}
-
-export interface SubjectRef {
-  id: number;
-  name: string;
-  type: "user" | "team";
-}
-
-export interface Team {
-  id: number;
-  name: string;
-  parent: SubjectRef | null;
-  children: SubjectRef[];
-}
 
 async function getJson<T>(path: string): Promise<T> {
   const resp = await fetch(`${API_URL}${path}`, {
