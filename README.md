@@ -1,7 +1,8 @@
 # Repository Access Service
 
 ## Running instructions
-So far, only the DB layer and `check()`/`explain()` exist — no API or frontend yet.
+No frontend yet, and `docker-compose.yml` only runs Postgres so far -- the API has to
+be run directly.
 
 ```bash
 docker compose up -d postgres
@@ -11,19 +12,26 @@ cd backend && pip install -r requirements.txt
 DATABASE_URL="postgresql://repo_access:repo_access@localhost:5432/repo_access" \
   python scripts/generate_fixture.py
 
+# run the API
+DATABASE_URL="postgresql://repo_access:repo_access@localhost:5432/repo_access" \
+  uvicorn app.main:app --reload
+# then e.g. curl "http://127.0.0.1:8000/check?user_id=1&action=read&repo_id=100"
+
 # tests -- needs a SEPARATE database, since tests truncate tables on every run
 createdb -h localhost -p 5432 -U repo_access repo_access_test   # PGPASSWORD=repo_access
 psql -h localhost -p 5432 -U repo_access -d repo_access_test -f app/schema.sql
-python3 -m unittest tests.test_cache tests.test_checker -v
+python3 -m unittest tests.test_cache tests.test_checker tests.test_routes -v
 ```
 
 ## Current state
 Built: DB schema, fixture generator (with planted cycles/edge cases), the in-memory
-cache, and `checker.check()` / `checker.explain()` (R1 + R3), all with passing tests.
+cache, `checker.check()` / `checker.explain()` (R1 + R3), and the API (`/check`,
+`/explain`, `POST`/`DELETE /membership`, R2's invalidation wiring) -- all with passing
+tests, plus a live end-to-end pass over real HTTP against the real fixture.
 
-Not built yet: the API layer (`routes.py`), the oracle and R4 comparison harness, the
-load generator, the frontend, and the backend/frontend Dockerfiles. `docker-compose.yml`
-currently only runs Postgres.
+Not built yet: browse endpoints (`/orgs`, `/resource/{id}`, etc.), the oracle and R4
+comparison harness, the load generator, the frontend, and the backend/frontend
+Dockerfiles. `docker-compose.yml` currently only runs Postgres.
 
 ## Requirements and tradeoffs
 
@@ -99,6 +107,20 @@ wiping everything.
   `["alice", "platform-eng", "acme-corp (write)", "repo: api-gateway"]`), matching the
   assignment's own example format directly — a breadcrumb the frontend can just join
   and display, instead of a type it has to format itself.
+
+- **A real bug caught by testing, not just a process hiccup this time:** the first
+  version of `test_routes.py` pre-created the `asyncpg` pool in its own `setUp` via
+  `asyncio.run(...)`, then handed it to a FastAPI app being driven by `TestClient`.
+  `TestClient` runs requests in its own separate event loop, and `asyncpg` pools are
+  bound forever to the loop that created them — every request failed with `RuntimeError:
+  ... attached to a different loop`. Fixed by never pre-creating the pool: point
+  `db.DATABASE_URL` at the test database and let the app create its pool lazily, the
+  first time a request actually needs it, inside `TestClient`'s own loop. Closing it
+  afterward had the same problem in reverse (closing from a *different* new loop than
+  the one that made it) — fixed by giving the FastAPI app a real `lifespan` shutdown
+  hook that closes its own pool, since `TestClient.__exit__` runs that shutdown inside
+  the correct loop. This isn't just a test workaround: the app didn't have a clean
+  shutdown path for its DB pool before this, so it's a real fix either way.
 
 - **A dead end worth recording, since transcripts should show these, not hide them:**
   while spot-checking `explain()` against the real fixture, results came back wrong

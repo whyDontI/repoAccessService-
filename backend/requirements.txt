@@ -1,2 +1,5 @@
 asyncpg
 pydantic
+fastapi
+uvicorn
+httpx2

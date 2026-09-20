@@ -1,3 +1,4 @@
+from datetime import datetime
 from enum import IntEnum
 
 from pydantic import BaseModel
@@ -25,3 +26,17 @@ class ExplainResponse(BaseModel):
     chain: list[str]
     granted_role: Role | None
     reason: str | None = None
+
+
+class CheckResponse(BaseModel):
+    """as_of is when the user's cached team set was computed, if this was
+    a cache hit -- None on a cold check. Grants are always read live, so
+    this is the only source of staleness in a check() answer at all."""
+
+    allowed: bool
+    as_of: datetime | None
+
+
+class MembershipIn(BaseModel):
+    subject_id: int
+    belongs_to_team_id: int
