@@ -9,8 +9,12 @@ services:
       - "5432:5432"
     volumes:
       - ./backend/app/schema.sql:/docker-entrypoint-initdb.d/01-schema.sql:ro
+      - pgdata:/var/lib/postgresql/data
     deploy:
       resources:
         limits:
           cpus: "0.5"
           memory: 512M
+
+volumes:
+  pgdata:
