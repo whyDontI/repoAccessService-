@@ -103,6 +103,16 @@ wiping everything.
   does this subject have" -- both directions covered, neither needs pagination for a
   reasonable scope.
 
+### All SQL is parameterized, no exceptions
+- Every query in the backend passes user-controlled values (`user_id`, `repo_id`,
+  `subject_id`, role strings, etc.) through `asyncpg`'s placeholders (`$1`, `$2`, ...),
+  never string-built into the query itself. This applies to the oracle too, once built.
+- The only f-strings touching a query anywhere in the backend build display text or
+  error messages (e.g. `"No resource with id {resource_id}"`), never SQL.
+- No user input is ever eligible for SQL injection here, by construction, not by
+  review -- there's simply no code path where a request value gets concatenated into
+  a query string.
+
 ## Decisions
 
 - **Cache stores a timestamp too, not just the team set.** Plan called for
