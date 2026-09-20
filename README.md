@@ -214,6 +214,28 @@ or trying to resolve it on the spot.
 
 ## Decisions
 
+Everything in this repo -- design, code, tests, this README -- was written by Claude
+(an AI agent), working through Claude Code. Nothing here was hand-written. What was
+mine: setting the direction (the R1/R2 cache point, what counts as in/out of scope,
+which ambiguities to resolve which way when the agent asked), reviewing every piece
+before it was committed, and pushing back when something was off. Full raw transcripts
+are in `agent-transcripts/`.
+
+Things I overrode or corrected along the way, beyond what's logged as a "dead end" or
+"real bug" below:
+- The agent committed a completed piece of work without waiting for my explicit
+  approval first, breaking the review-then-commit workflow I'd set up. Called it out;
+  it did not repeat this for the rest of the session.
+- Asked it to verify the `assertIn` substring checks in an early test were actually
+  meaningful assertions rather than loose ones -- it agreed they weren't and tightened
+  them to exact-match, since the message they check is fully deterministic.
+- Asked directly whether SQL injection had been considered; it confirmed the existing
+  code was already safe (parameterized throughout) and added that as a documented
+  guarantee rather than an afterthought.
+- Redirected a plan draft that was clearer in the code layer of my head than in the
+  README's -- asked for plain, scannable bullet points over dense paragraph-style
+  writing, which became a standing rule (see `CLAUDE.md`).
+
 - **Typed contract: hand-written TS types, not generated from OpenAPI.** FastAPI
   exposes an OpenAPI schema that tools like `openapi-typescript` could generate a
   client from. For a handful of endpoints, hand-writing `frontend/src/api.ts` to match
