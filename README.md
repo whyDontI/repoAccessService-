@@ -1,10 +1,29 @@
 # Repository Access Service
 
 ## Running instructions
-Not written yet.
+So far, only the DB layer and `check()`/`explain()` exist — no API or frontend yet.
+
+```bash
+docker compose up -d postgres
+
+# fixture data (real dataset, ~400k grants)
+cd backend && pip install -r requirements.txt
+DATABASE_URL="postgresql://repo_access:repo_access@localhost:5432/repo_access" \
+  python scripts/generate_fixture.py
+
+# tests -- needs a SEPARATE database, since tests truncate tables on every run
+createdb -h localhost -p 5432 -U repo_access repo_access_test   # PGPASSWORD=repo_access
+psql -h localhost -p 5432 -U repo_access -d repo_access_test -f app/schema.sql
+python3 -m unittest tests.test_cache tests.test_checker -v
+```
 
 ## Current state
-Nothing built yet.
+Built: DB schema, fixture generator (with planted cycles/edge cases), the in-memory
+cache, and `checker.check()` / `checker.explain()` (R1 + R3), all with passing tests.
+
+Not built yet: the API layer (`routes.py`), the oracle and R4 comparison harness, the
+load generator, the frontend, and the backend/frontend Dockerfiles. `docker-compose.yml`
+currently only runs Postgres.
 
 ## Requirements and tradeoffs
 
@@ -68,5 +87,26 @@ wiping everything.
 - Not engineering for deeper/wider than our own test data right now.
 
 ## Decisions
-Not written yet. Will log what was delegated to the AI agent vs. done directly, where
-the agent got something wrong, and anything overridden — tied to commits.
+
+- **Cache stores a timestamp too, not just the team set.** Plan called for
+  `get(user_id) -> set[int] | None`. Changed it to also return when that set was
+  cached, because the frontend needs an "as of" time on cache-hit answers, and the
+  cache is the only place that timestamp exists.
+
+- **`explain()`'s chain is a plain list of strings, not a structured step type.**
+  Originally planned a richer `ExplainStep` (subject name + type) separate from the
+  resource/role part. Simplified to one flat list of readable strings (e.g.
+  `["alice", "platform-eng", "acme-corp (write)", "repo: api-gateway"]`), matching the
+  assignment's own example format directly — a breadcrumb the frontend can just join
+  and display, instead of a type it has to format itself.
+
+- **A dead end worth recording, since transcripts should show these, not hide them:**
+  while spot-checking `explain()` against the real fixture, results came back wrong
+  (a confirmed-working grant showed as "no path found"). Before assuming `checker.py`
+  was broken, checked the data directly — the `repo_access` database was empty. Traced
+  it to an earlier `docker compose down -v` (destructive, removes volumes) run during
+  cleanup after an earlier step. Regenerated the fixture and it was correct. Also used
+  the opportunity to directly verify the test suite isn't the culprit: ran the fixture
+  generator, confirmed data present, ran the full test suite, confirmed data was
+  *still* present immediately after — proving `test_checker.py`'s per-test `TRUNCATE`
+  only ever touches the separate `repo_access_test` database, never the dev one.

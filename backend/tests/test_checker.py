@@ -122,5 +122,81 @@ class TestCheck(unittest.IsolatedAsyncioTestCase):
         self.assertTrue(await checker.check(8, Role.READ, 100))
 
 
+class TestExplain(unittest.IsolatedAsyncioTestCase):
+    async def asyncSetUp(self):
+        db._pool = await asyncpg.create_pool(TEST_DATABASE_URL)
+        async with db._pool.acquire() as conn:
+            await conn.execute(
+                "TRUNCATE grants, team_relationships, resources, subjects RESTART IDENTITY CASCADE"
+            )
+        cache.invalidate_all()
+
+    async def asyncTearDown(self):
+        await db._pool.close()
+
+    _seed = TestCheck._seed
+
+    async def test_allow_chain_through_nested_teams(self):
+        await self._seed(
+            subjects=[
+                (1, "user", "alice"),
+                (200, "team", "platform-eng"),
+                (201, "team", "infrastructure"),
+            ],
+            resources=[(900, "org", None, "acme-corp"), (100, "repo", 900, "api-gateway")],
+            team_edges=[(1, 200), (200, 201)],
+            grants=[(201, "write", 900)],
+        )
+        result = await checker.explain(1, Role.WRITE, 100)
+        self.assertTrue(result.allowed)
+        self.assertEqual(result.granted_role, Role.WRITE)
+        self.assertIsNone(result.reason)
+        self.assertEqual(
+            result.chain,
+            ["alice", "platform-eng", "infrastructure", "acme-corp (write)", "repo: api-gateway"],
+        )
+
+    async def test_allow_chain_on_direct_repo_grant_has_no_duplicate_repo_step(self):
+        await self._seed(
+            subjects=[(2, "user", "bob")],
+            resources=[(900, "org", None, "acme-corp"), (100, "repo", 900, "api-gateway")],
+            grants=[(2, "owner", 100)],
+        )
+        result = await checker.explain(2, Role.OWNER, 100)
+        self.assertTrue(result.allowed)
+        self.assertEqual(result.chain, ["bob", "api-gateway (owner)"])
+
+    async def test_deny_reason_when_role_too_low(self):
+        await self._seed(
+            subjects=[(3, "user", "carol")],
+            resources=[(900, "org", None, "acme-corp"), (100, "repo", 900, "api-gateway")],
+            grants=[(3, "read", 100)],
+        )
+        result = await checker.explain(3, Role.ADMIN, 100)
+        self.assertFalse(result.allowed)
+        self.assertEqual(result.granted_role, Role.READ)
+        self.assertEqual(result.reason, "Highest role found is read, but admin was requested.")
+
+    async def test_deny_reason_when_no_path_at_all(self):
+        await self._seed(
+            subjects=[(4, "user", "dave")],
+            resources=[(900, "org", None, "acme-corp"), (100, "repo", 900, "api-gateway")],
+        )
+        result = await checker.explain(4, Role.READ, 100)
+        self.assertFalse(result.allowed)
+        self.assertIsNone(result.granted_role)
+        self.assertEqual(result.chain, ["dave"])
+
+    async def test_cyclic_teams_do_not_hang(self):
+        await self._seed(
+            subjects=[(5, "user", "erin"), (500, "team", "a"), (501, "team", "b")],
+            resources=[(900, "org", None, "acme-corp"), (100, "repo", 900, "api-gateway")],
+            team_edges=[(5, 500), (500, 501), (501, 500)],  # 500 <-> 501 cycle
+            grants=[(501, "read", 100)],
+        )
+        result = await checker.explain(5, Role.READ, 100)
+        self.assertTrue(result.allowed)
+
+
 if __name__ == "__main__":
     unittest.main()
