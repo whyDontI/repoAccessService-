@@ -129,6 +129,17 @@ async def main():
     rng = random.Random(SEED)
     conn = await asyncpg.connect(DATABASE_URL)
 
+    # Idempotent on purpose: docker-compose runs this on every backend
+    # startup (see backend/Dockerfile), including against a volume that
+    # already has data from a previous run. Found the hard way -- an
+    # earlier version errored with a duplicate-key violation the first
+    # time this ran twice against the same database.
+    existing = await conn.fetchval("SELECT count(*) FROM subjects")
+    if existing > 0:
+        print(f"subjects already has {existing} rows, skipping fixture generation")
+        await conn.close()
+        return
+
     user_ids = list(range(FIRST_USER_ID, FIRST_USER_ID + NUM_USERS))
     team_ids, team_edges, spine_leaf_id, cyclic_pairs, empty_team_id = build_teams(rng)
     membership_pool = [t for t in team_ids if t != empty_team_id]

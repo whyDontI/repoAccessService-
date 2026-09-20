@@ -1,39 +1,45 @@
 # Repository Access Service
 
 ## Running instructions
-No frontend yet, and `docker-compose.yml` only runs Postgres so far -- the API has to
-be run directly.
+No frontend yet, so `docker compose up` brings up Postgres + the backend API only.
 
 ```bash
-docker compose up -d postgres
+docker compose up -d --build
+# fixture data seeds automatically on backend startup (idempotent -- safe to restart)
+curl "http://localhost:8000/check?user_id=1&action=read&repo_id=100"
+```
 
-# fixture data (real dataset, ~400k grants)
+Running the backend outside Docker (e.g. for local iteration) still works the same as
+before:
+```bash
+docker compose up -d postgres
 cd backend && pip install -r requirements.txt
 DATABASE_URL="postgresql://repo_access:repo_access@localhost:5432/repo_access" \
   python scripts/generate_fixture.py
-
-# run the API
 DATABASE_URL="postgresql://repo_access:repo_access@localhost:5432/repo_access" \
   uvicorn app.main:app --reload
-# then e.g. curl "http://127.0.0.1:8000/check?user_id=1&action=read&repo_id=100"
+```
 
-# tests -- needs a SEPARATE database, since tests truncate tables on every run
+Tests need a SEPARATE database (they `TRUNCATE` it on every run, so it must never be
+the dev/fixture one):
+```bash
 createdb -h localhost -p 5432 -U repo_access repo_access_test   # PGPASSWORD=repo_access
-psql -h localhost -p 5432 -U repo_access -d repo_access_test -f app/schema.sql
-python3 -m unittest tests.test_cache tests.test_checker tests.test_routes -v
+psql -h localhost -p 5432 -U repo_access -d repo_access_test -f backend/app/schema.sql
+cd backend && python3 -m unittest tests.test_cache tests.test_checker tests.test_oracle tests.test_routes tests.test_db -v
 ```
 
 ## Current state
-Built: DB schema, fixture generator (with planted cycles/edge cases), the in-memory
-cache, `checker.check()` / `checker.explain()` (R1 + R3), the full API (`/check`,
-`/explain`, membership + grant mutations, browse endpoints), the oracle, the R4
-comparison harness, and the load generator -- all with passing tests, plus live
-end-to-end passes over real HTTP and against the real fixture. See "R4 -- divergences
-found" and "Load testing -- what we found so far" below for the real bugs and open
-questions those surfaced.
+Built: DB schema, fixture generator (with planted cycles/edge cases, now idempotent),
+the in-memory cache, `checker.check()` / `checker.explain()` (R1 + R3), the full API
+(`/check`, `/explain`, membership + grant mutations, browse endpoints), the oracle, the
+R4 comparison harness, the load generator, and `docker-compose.yml` + `backend/Dockerfile`
+-- all with passing tests (42 total), plus live end-to-end passes over real HTTP,
+against the real fixture, and a clean-slate `docker compose up` verification. See "R4
+-- divergences found" and "Load testing -- what we found so far" below for the real
+bugs and open questions those surfaced.
 
-Not built yet: the frontend and the backend/frontend Dockerfiles. `docker-compose.yml`
-currently only runs Postgres.
+Not built yet: the frontend and its Dockerfile/compose service, and `BENCH.md`'s formal
+resource-constrained benchmark run.
 
 ## Requirements and tradeoffs
 
@@ -184,6 +190,12 @@ single developer machine outside Docker. Flagging it here rather than either hid
 or trying to resolve it on the spot.
 
 ## Decisions
+
+- **`generate_fixture.py` had to become idempotent.** Discovered during oracle-harness
+  testing that re-running it against a non-empty database throws a duplicate-key
+  error. Since `docker compose up` needs to seed data on every backend startup,
+  including against a volume that already has data from a previous run, it now checks
+  `subjects` first and skips generation entirely if any rows exist.
 
 - **Cache stores a timestamp too, not just the team set.** Plan called for
   `get(user_id) -> set[int] | None`. Changed it to also return when that set was
