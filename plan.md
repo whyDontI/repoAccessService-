@@ -191,7 +191,7 @@ Cut from the bottom if short on time.
 
 - [x] `backend/app/schema.sql` + apply to postgres (also stood up `docker-compose.yml` with the postgres service ahead of schedule, so we could test in a real container instead of a throwaway local instance)
 - [x] `backend/scripts/generate_fixture.py` (50k users, 4k teams/8 levels, 20k repos, ~400k grants, planted cycles/edge cases) — verified against a real container: exact row counts, a clean isolated depth-8 chain, 3 real cycles, an empty team, and a repo-beats-org case. Manifest of these written to `fixture_manifest.json` for later scripts to read directly.
-- [ ] `backend/app/cache.py`
+- [x] `backend/app/cache.py` + `backend/tests/test_cache.py` (5 tests, all passing — written ahead of the later "backend/tests/" bullet since it made sense to test each module as it's built)
 - [ ] `backend/app/checker.py` (`check`, `explain`) — R1 + R3
 - [ ] `backend/app/routes.py` — `/check`, `/explain`, `/membership` wired to invalidation — R2
 - [ ] rest of `backend/app/routes.py` — browse endpoints, `/grant`
