@@ -40,3 +40,49 @@ class CheckResponse(BaseModel):
 class MembershipIn(BaseModel):
     subject_id: int
     belongs_to_team_id: int
+
+
+class SubjectRef(BaseModel):
+    """A minimal reference to a user or team, used for a team's parent
+    and children -- just enough to link to it and show a name."""
+
+    id: int
+    name: str
+
+
+class OrgOut(BaseModel):
+    id: int
+    name: str
+
+
+class RepoOut(BaseModel):
+    id: int
+    name: str
+    org_id: int
+
+
+class ResourceOut(BaseModel):
+    id: int
+    name: str
+    type: str
+    org_id: int | None
+
+
+class TeamOut(BaseModel):
+    id: int
+    name: str
+    parent: SubjectRef | None
+    children: list[SubjectRef]
+
+
+class GrantIn(BaseModel):
+    subject_id: int
+    role: Role
+    resource_id: int
+
+
+class GrantOut(BaseModel):
+    id: int
+    subject_id: int
+    role: Role
+    resource_id: int

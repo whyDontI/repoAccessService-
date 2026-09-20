@@ -25,13 +25,13 @@ python3 -m unittest tests.test_cache tests.test_checker tests.test_routes -v
 
 ## Current state
 Built: DB schema, fixture generator (with planted cycles/edge cases), the in-memory
-cache, `checker.check()` / `checker.explain()` (R1 + R3), and the API (`/check`,
-`/explain`, `POST`/`DELETE /membership`, R2's invalidation wiring) -- all with passing
-tests, plus a live end-to-end pass over real HTTP against the real fixture.
+cache, `checker.check()` / `checker.explain()` (R1 + R3), and the full API (`/check`,
+`/explain`, membership + grant mutations, browse endpoints) -- all with passing tests,
+plus live end-to-end passes over real HTTP against the real fixture.
 
-Not built yet: browse endpoints (`/orgs`, `/resource/{id}`, etc.), the oracle and R4
-comparison harness, the load generator, the frontend, and the backend/frontend
-Dockerfiles. `docker-compose.yml` currently only runs Postgres.
+Not built yet: the oracle and R4 comparison harness, the load generator, the frontend,
+and the backend/frontend Dockerfiles. `docker-compose.yml` currently only runs
+Postgres.
 
 ## Requirements and tradeoffs
 
@@ -93,6 +93,15 @@ wiping everything.
 
 ### Only handling depth up to the fixture's 8 levels
 - Not engineering for deeper/wider than our own test data right now.
+
+### GET /grant always requires a subject_id
+- The spec just says "list / create grants" -- underspecified on what "list" scopes to.
+- The grants table is huge (~400k rows in the fixture alone), so an unfiltered dump
+  isn't a real option.
+- Resolved it as the mirror image of `/resource/{id}/grants`: that endpoint answers
+  "what grants exist on this resource," `GET /grant?subject_id=` answers "what grants
+  does this subject have" -- both directions covered, neither needs pagination for a
+  reasonable scope.
 
 ## Decisions
 
