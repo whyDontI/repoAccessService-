@@ -26,13 +26,14 @@ python3 -m unittest tests.test_cache tests.test_checker tests.test_routes -v
 ## Current state
 Built: DB schema, fixture generator (with planted cycles/edge cases), the in-memory
 cache, `checker.check()` / `checker.explain()` (R1 + R3), the full API (`/check`,
-`/explain`, membership + grant mutations, browse endpoints), the oracle, and the R4
-comparison harness -- all with passing tests, plus live end-to-end passes over real
-HTTP and against the real fixture. See "R4 -- divergences found" below for the harness
-results.
+`/explain`, membership + grant mutations, browse endpoints), the oracle, the R4
+comparison harness, and the load generator -- all with passing tests, plus live
+end-to-end passes over real HTTP and against the real fixture. See "R4 -- divergences
+found" and "Load testing -- what we found so far" below for the real bugs and open
+questions those surfaced.
 
-Not built yet: the load generator, the frontend, and the backend/frontend Dockerfiles.
-`docker-compose.yml` currently only runs Postgres.
+Not built yet: the frontend and the backend/frontend Dockerfiles. `docker-compose.yml`
+currently only runs Postgres.
 
 ## Requirements and tradeoffs
 
@@ -108,6 +109,11 @@ wiping everything.
 - Every query in the backend passes user-controlled values (`user_id`, `repo_id`,
   `subject_id`, role strings, etc.) through `asyncpg`'s placeholders (`$1`, `$2`, ...),
   never string-built into the query itself. The oracle follows the same rule.
+- The only f-strings touching a query anywhere in the backend build display text or
+  error messages (e.g. `"No resource with id {resource_id}"`), never SQL.
+- No user input is ever eligible for SQL injection here, by construction, not by
+  review -- there's simply no code path where a request value gets concatenated into
+  a query string.
 
 ## R4 -- divergences found
 
@@ -144,11 +150,38 @@ does catch real bugs; it isn't just agreeing with whatever `checker.py` says.
 **What would make us look again:** any future change to `checker.py` or `oracle.py`
 that isn't re-run through this harness before being trusted. This isn't a one-time
 proof -- it's meant to be re-run whenever the fast path changes.
-- The only f-strings touching a query anywhere in the backend build display text or
-  error messages (e.g. `"No resource with id {resource_id}"`), never SQL.
-- No user input is ever eligible for SQL injection here, by construction, not by
-  review -- there's simply no code path where a request value gets concatenated into
-  a query string.
+
+## Load testing -- what we found so far
+
+`load_test.py` paces `/check` at a target rate while separately applying membership
+mutations, then reports p50/p95/p99. Building and validating it against the real
+server surfaced three real bugs before it ever produced a trustworthy number:
+
+- **No error handling on mutations.** `_apply_mutation` had none -- one failed request
+  crashed the entire run. `_timed_check` already caught this correctly; the mutation
+  path didn't match it. Fixed.
+- **A real race condition in `db.py`'s lazy pool initialization.** `if _pool is None:
+  _pool = await asyncpg.create_pool(...)` has no lock. Under a cold-start burst of
+  concurrent requests, every one of them sees `_pool is None` at the same instant and
+  independently calls `create_pool()` -- instantly opening far more connections than
+  intended, all at once, blowing straight through Postgres's own `max_connections`
+  (100 by default) with `TooManyConnectionsError: sorry, too many clients already`.
+  This looked at first like a resource-sizing problem; the traceback showed it was
+  actually a concurrency bug in pool creation itself. Fixed with an `asyncio.Lock`
+  (check-lock-check, so only the first caller actually creates the pool).
+- **`asyncpg`'s own default pool size (`max_size=10`) is too small for this load.**
+  Now configurable via `DB_POOL_MAX_SIZE` (default 20 -- deliberately not higher:
+  Postgres's `max_connections` default is 100 on a container capped at 512MB, and
+  other clients (the harness, this script's own setup connection) need headroom too).
+
+**What's still unresolved, on purpose:** even after all three fixes, sustained
+paced runs show real, significant run-to-run variance -- e.g. one clean-environment
+100/sec run measured *worse* (p95 204ms) than a 200/sec run right after it (p95 6ms).
+That's arrival-rate-vs-service-rate queueing behavior, not noise, but pinning down the
+actual sustainable ceiling under the real 2 vCPU / 4GB constraint needs the kind of
+repeated, controlled measurement `BENCH.md` is for -- not a quick validation pass on a
+single developer machine outside Docker. Flagging it here rather than either hiding it
+or trying to resolve it on the spot.
 
 ## Decisions
 
