@@ -25,13 +25,14 @@ python3 -m unittest tests.test_cache tests.test_checker tests.test_routes -v
 
 ## Current state
 Built: DB schema, fixture generator (with planted cycles/edge cases), the in-memory
-cache, `checker.check()` / `checker.explain()` (R1 + R3), and the full API (`/check`,
-`/explain`, membership + grant mutations, browse endpoints) -- all with passing tests,
-plus live end-to-end passes over real HTTP against the real fixture.
+cache, `checker.check()` / `checker.explain()` (R1 + R3), the full API (`/check`,
+`/explain`, membership + grant mutations, browse endpoints), the oracle, and the R4
+comparison harness -- all with passing tests, plus live end-to-end passes over real
+HTTP and against the real fixture. See "R4 -- divergences found" below for the harness
+results.
 
-Not built yet: the oracle and R4 comparison harness, the load generator, the frontend,
-and the backend/frontend Dockerfiles. `docker-compose.yml` currently only runs
-Postgres.
+Not built yet: the load generator, the frontend, and the backend/frontend Dockerfiles.
+`docker-compose.yml` currently only runs Postgres.
 
 ## Requirements and tradeoffs
 
@@ -106,7 +107,43 @@ wiping everything.
 ### All SQL is parameterized, no exceptions
 - Every query in the backend passes user-controlled values (`user_id`, `repo_id`,
   `subject_id`, role strings, etc.) through `asyncpg`'s placeholders (`$1`, `$2`, ...),
-  never string-built into the query itself. This applies to the oracle too, once built.
+  never string-built into the query itself. The oracle follows the same rule.
+
+## R4 -- divergences found
+
+Ran `oracle_harness.py` against the full ~400k-grant fixture:
+- 1,000 rounds at a 0.3 mutation rate, then 5,000 rounds at 0.4 -- 0 divergences.
+- 14,000 checks targeted specifically at the 70 users sitting directly under the
+  fixture's 3 deliberately-cyclic teams (the case the assignment calls out by name) --
+  0 divergences.
+
+A "0" is worthless if the comparison itself doesn't actually work, so before trusting
+it: temporarily disabled org-grant climbing in a copy of `resolve_role` (a real,
+plausible bug -- "forgot to check the org too") and re-ran against 300 real
+org-grant-covers-a-repo cases. Result: 300/300 mismatches, 100% detection. The harness
+does catch real bugs; it isn't just agreeing with whatever `checker.py` says.
+
+**Why zero is a defensible result here, not a sign the harness is broken:**
+- `checker.check()` does use a cache, but only for the team-set lookup (which teams a
+  user transitively belongs to) -- never for grants. `resolve_role()` reads the
+  `grants` table live on every call, cache hit or miss on the team set. The oracle
+  never caches anything at all. So even on a cache hit, the actual access decision is
+  always made from fresh grant data in both implementations -- there's no path where
+  they could be looking at different grant data at the same moment. (A stale *team
+  set* is possible in principle if invalidation were ever missed, but that would be a
+  bug in the invalidation wiring, not a gap in this design -- and it's exactly what
+  the harness's membership-mutation testing above is checking for.)
+- Both handle cycles with a visited-set, just differently (the fast path per-path,
+  inside a recursive CTE; the oracle a single global set in a plain BFS). Reachability
+  is a well-defined set regardless of which strategy computes it, so two *correct*
+  cycle guards can't disagree on the final answer, only on how much work they do to
+  get there.
+- Org-vs-repo precedence (climb from repo to org, take the max) is implemented the
+  same logical way in both, written independently.
+
+**What would make us look again:** any future change to `checker.py` or `oracle.py`
+that isn't re-run through this harness before being trusted. This isn't a one-time
+proof -- it's meant to be re-run whenever the fast path changes.
 - The only f-strings touching a query anywhere in the backend build display text or
   error messages (e.g. `"No resource with id {resource_id}"`), never SQL.
 - No user input is ever eligible for SQL injection here, by construction, not by
