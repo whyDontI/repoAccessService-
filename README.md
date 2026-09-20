@@ -48,7 +48,11 @@ What doesn't work / wasn't checked:
   hand-written TS interfaces exactly (checked against the live containerized backend),
   and the built JS bundle contains the actual component text, not leftover demo content.
 
-`BENCH.md`'s formal resource-constrained benchmark run is still outstanding.
+See `BENCH.md` for the real, resource-constrained benchmark numbers -- including the
+finding that measuring through the host-published port on this machine gave wildly
+wrong numbers (Docker Desktop's macOS networking, not the app), and that this design's
+real sustainable ceiling is well below the assignment's 5,000/sec headline figure once
+measured correctly.
 
 ## Requirements and tradeoffs
 
