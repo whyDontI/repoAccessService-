@@ -1,12 +1,11 @@
 # Repository Access Service
 
 ## Running instructions
-No frontend yet, so `docker compose up` brings up Postgres + the backend API only.
-
 ```bash
 docker compose up -d --build
 # fixture data seeds automatically on backend startup (idempotent -- safe to restart)
-curl "http://localhost:8000/check?user_id=1&action=read&repo_id=100"
+open http://localhost:5173          # frontend
+curl "http://localhost:8000/check?user_id=1&action=read&repo_id=100"   # or hit the API directly
 ```
 
 Running the backend outside Docker (e.g. for local iteration) still works the same as
@@ -32,14 +31,24 @@ cd backend && python3 -m unittest tests.test_cache tests.test_checker tests.test
 Built: DB schema, fixture generator (with planted cycles/edge cases, now idempotent),
 the in-memory cache, `checker.check()` / `checker.explain()` (R1 + R3), the full API
 (`/check`, `/explain`, membership + grant mutations, browse endpoints), the oracle, the
-R4 comparison harness, the load generator, and `docker-compose.yml` + `backend/Dockerfile`
--- all with passing tests (42 total), plus live end-to-end passes over real HTTP,
-against the real fixture, and a clean-slate `docker compose up` verification. See "R4
--- divergences found" and "Load testing -- what we found so far" below for the real
-bugs and open questions those surfaced.
+R4 comparison harness, the load generator, the frontend (check panel, explain view, org
+browser), and `docker-compose.yml` with all three services resource-limited to the 2
+vCPU / 4GB budget -- all with passing tests (42 total), plus a real clean-slate
+`docker compose up` verification of the whole stack together. See "R4 -- divergences
+found" and "Load testing -- what we found so far" below for the real bugs and open
+questions those surfaced.
 
-Not built yet: the frontend and its Dockerfile/compose service, and `BENCH.md`'s formal
-resource-constrained benchmark run.
+What doesn't work / wasn't checked:
+- No user search by name in the frontend -- the API has no endpoint for it (searching
+  50k users by name would need its own indexed lookup, out of scope for this pass), so
+  the check panel takes a numeric user id directly.
+- The frontend's rendering and interactivity were not visually verified -- there's no
+  browser or screenshot tool in this environment. What was verified instead: `npm run
+  build` is clean (no TypeScript errors), every real API response shape matches the
+  hand-written TS interfaces exactly (checked against the live containerized backend),
+  and the built JS bundle contains the actual component text, not leftover demo content.
+
+`BENCH.md`'s formal resource-constrained benchmark run is still outstanding.
 
 ## Requirements and tradeoffs
 
@@ -121,6 +130,16 @@ wiping everything.
   review -- there's simply no code path where a request value gets concatenated into
   a query string.
 
+### No user search by name in the frontend
+- The original brief wanted a user search, since a plain dropdown can't hold 50k
+  names. Building that properly needs a real search endpoint (indexed name lookup,
+  probably paginated) that was never designed or built in this pass.
+- The check panel takes a numeric user id directly instead. Not what a non-technical
+  reviewer would want, but it's an honest reflection of what's actually built rather
+  than a search box that silently doesn't scale.
+- What would change this: if this were going further, a `GET /users?search=` endpoint
+  with a trigram or prefix index on `name` would be the natural next piece.
+
 ## R4 -- divergences found
 
 Ran `oracle_harness.py` against the full ~400k-grant fixture:
@@ -190,6 +209,17 @@ single developer machine outside Docker. Flagging it here rather than either hid
 or trying to resolve it on the spot.
 
 ## Decisions
+
+- **Typed contract: hand-written TS types, not generated from OpenAPI.** FastAPI
+  exposes an OpenAPI schema that tools like `openapi-typescript` could generate a
+  client from. For a handful of endpoints, hand-writing `frontend/src/api.ts` to match
+  `backend/app/models.py` by eye was simpler than wiring up a codegen step -- verified
+  they actually match by checking every real response shape against the live
+  containerized backend rather than assuming the two sides agree.
+
+- **Added CORS middleware to the backend.** Wasn't needed until the frontend existed
+  and started calling the API cross-origin. Permissive (`allow_origins=["*"]`) since
+  auth is explicitly out of scope and this never leaves the local compose stack.
 
 - **`generate_fixture.py` had to become idempotent.** Discovered during oracle-harness
   testing that re-running it against a non-empty database throws a duplicate-key

@@ -44,10 +44,12 @@ class MembershipIn(BaseModel):
 
 class SubjectRef(BaseModel):
     """A minimal reference to a user or team, used for a team's parent
-    and children -- just enough to link to it and show a name."""
+    and children -- just enough to link to it, show a name, and tell a
+    user apart from a nested team when rendering as a tree."""
 
     id: int
     name: str
+    type: str
 
 
 class OrgOut(BaseModel):
@@ -84,5 +86,9 @@ class GrantIn(BaseModel):
 class GrantOut(BaseModel):
     id: int
     subject_id: int
+    subject_name: str
+    subject_type: str
     role: Role
     resource_id: int
+    resource_name: str
+    resource_type: str

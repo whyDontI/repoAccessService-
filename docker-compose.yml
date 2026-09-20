@@ -36,5 +36,17 @@ services:
           cpus: "1.0"
           memory: 1536M
 
+  frontend:
+    build: ./frontend
+    ports:
+      - "5173:80"
+    depends_on:
+      - backend
+    deploy:
+      resources:
+        limits:
+          cpus: "0.5"
+          memory: 2048M
+
 volumes:
   pgdata:

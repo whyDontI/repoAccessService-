@@ -140,18 +140,22 @@ class TestRoutes(unittest.TestCase):
         body = resp.json()
         self.assertEqual(len(body), 1)
         self.assertEqual(body[0]["subject_id"], 200)
+        self.assertEqual(body[0]["subject_name"], "platform")
+        self.assertEqual(body[0]["subject_type"], "team")
         self.assertEqual(body[0]["role"], 2)  # Role.WRITE
+        self.assertEqual(body[0]["resource_name"], "api")
+        self.assertEqual(body[0]["resource_type"], "repo")
 
     def test_get_team_shows_parent_and_children(self):
         resp = self.client.get("/teams/201")
         body = resp.json()
-        self.assertEqual(body["parent"], {"id": 200, "name": "platform"})
+        self.assertEqual(body["parent"], {"id": 200, "name": "platform", "type": "team"})
         self.assertEqual(body["children"], [])
 
         resp = self.client.get("/teams/200")
         body = resp.json()
         self.assertIsNone(body["parent"])
-        self.assertEqual(body["children"], [{"id": 201, "name": "infra"}])
+        self.assertEqual(body["children"], [{"id": 201, "name": "infra", "type": "team"}])
 
     def test_get_team_404_for_a_user_id(self):
         resp = self.client.get("/teams/1")  # 1 is alice, a user, not a team
@@ -162,13 +166,17 @@ class TestRoutes(unittest.TestCase):
         body = resp.json()
         self.assertEqual(len(body), 1)
         self.assertEqual(body[0]["resource_id"], 100)
+        self.assertEqual(body[0]["resource_name"], "api")
 
     def test_create_grant_then_it_shows_up_in_check(self):
         resp = self.client.post(
             "/grant", json={"subject_id": 1, "role": 1, "resource_id": 101}
         )
         self.assertEqual(resp.status_code, 201)
-        self.assertEqual(resp.json()["role"], 1)
+        body = resp.json()
+        self.assertEqual(body["role"], 1)
+        self.assertEqual(body["subject_name"], "alice")
+        self.assertEqual(body["resource_name"], "other-repo")
 
         resp = self.client.get(
             "/check", params={"user_id": 1, "action": "read", "repo_id": 101}

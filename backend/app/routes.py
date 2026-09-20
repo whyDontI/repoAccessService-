@@ -119,14 +119,26 @@ async def get_resource(resource_id: int):
     return ResourceOut(**dict(row))
 
 
+_GRANT_WITH_NAMES_SQL = """
+SELECT g.id, g.subject_id, s.name AS subject_name, s.type AS subject_type,
+       g.role, g.resource_id, r.name AS resource_name, r.type AS resource_type
+FROM grants g
+JOIN subjects s ON s.id = g.subject_id
+JOIN resources r ON r.id = g.resource_id
+"""
+
+
+def _grant_out(row) -> GrantOut:
+    return GrantOut(**{**dict(row), "role": Role.from_str(row["role"])})
+
+
 @router.get("/resource/{resource_id}/grants", response_model=list[GrantOut])
 async def get_resource_grants(resource_id: int):
     pool = await db.get_pool()
     rows = await pool.fetch(
-        "SELECT id, subject_id, role, resource_id FROM grants WHERE resource_id = $1 ORDER BY id",
-        resource_id,
+        _GRANT_WITH_NAMES_SQL + " WHERE g.resource_id = $1 ORDER BY g.id", resource_id
     )
-    return [GrantOut(**{**dict(row), "role": Role.from_str(row["role"])}) for row in rows]
+    return [_grant_out(row) for row in rows]
 
 
 @router.get("/teams/{team_id}", response_model=TeamOut)
@@ -139,15 +151,15 @@ async def get_team(team_id: int):
         raise HTTPException(404, f"No team with id {team_id}")
 
     parent_row = await pool.fetchrow(
-        "SELECT s.id, s.name FROM team_relationships tr "
+        "SELECT s.id, s.name, s.type FROM team_relationships tr "
         "JOIN subjects s ON s.id = tr.belongs_to_team_id "
         "WHERE tr.subject_id = $1 LIMIT 1",
         team_id,
     )
     child_rows = await pool.fetch(
-        "SELECT s.id, s.name FROM team_relationships tr "
+        "SELECT s.id, s.name, s.type FROM team_relationships tr "
         "JOIN subjects s ON s.id = tr.subject_id "
-        "WHERE tr.belongs_to_team_id = $1 ORDER BY s.id",
+        "WHERE tr.belongs_to_team_id = $1 ORDER BY s.type, s.id",
         team_id,
     )
     return TeamOut(
@@ -167,20 +179,20 @@ async def get_team(team_id: int):
 async def list_grants(subject_id: int):
     pool = await db.get_pool()
     rows = await pool.fetch(
-        "SELECT id, subject_id, role, resource_id FROM grants WHERE subject_id = $1 ORDER BY id",
-        subject_id,
+        _GRANT_WITH_NAMES_SQL + " WHERE g.subject_id = $1 ORDER BY g.id", subject_id
     )
-    return [GrantOut(**{**dict(row), "role": Role.from_str(row["role"])}) for row in rows]
+    return [_grant_out(row) for row in rows]
 
 
 @router.post("/grant", status_code=201, response_model=GrantOut)
 async def create_grant(body: GrantIn):
     pool = await db.get_pool()
-    row = await pool.fetchrow(
-        "INSERT INTO grants (subject_id, role, resource_id) VALUES ($1, $2, $3) "
-        "RETURNING id, subject_id, role, resource_id",
-        body.subject_id,
-        body.role.name.lower(),
-        body.resource_id,
-    )
-    return GrantOut(**{**dict(row), "role": Role.from_str(row["role"])})
+    async with pool.acquire() as conn:
+        new_id = await conn.fetchval(
+            "INSERT INTO grants (subject_id, role, resource_id) VALUES ($1, $2, $3) RETURNING id",
+            body.subject_id,
+            body.role.name.lower(),
+            body.resource_id,
+        )
+        row = await conn.fetchrow(_GRANT_WITH_NAMES_SQL + " WHERE g.id = $1", new_id)
+    return _grant_out(row)
